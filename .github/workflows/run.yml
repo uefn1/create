@@ -14,7 +14,7 @@ permissions:
 env:
   MODEL_REPO: "Qwen/Qwen2.5-Coder-7B-Instruct-GGUF"
   MODEL_FILE: "qwen2.5-coder-7b-instruct-q4_k_m.gguf"
-  LLAMA_VERSION: "latest"
+  LLAMA_VERSION: "b12289"
 
 jobs:
   develop:
@@ -46,29 +46,21 @@ jobs:
           mkdir -p llama
           cd llama
 
-          # latestならAPIから実在する最新タグを取得
-          if [ -z "${LLAMA_VERSION}" ] || [ "${LLAMA_VERSION}" = "latest" ]; then
-            LLAMA_VERSION=$(curl -fsSL https://api.github.com/repos/ggml-org/llama.cpp/releases/latest \
-              | grep -oP '"tag_name":\s*"\K[^"]+')
-          fi
-          echo "llama.cpp version: $LLAMA_VERSION"
           BASE="https://github.com/ggml-org/llama.cpp/releases/download/${LLAMA_VERSION}"
 
-          # zip → tar.gz の順で試す
           if curl -fsSL -o pkg.zip "${BASE}/llama-${LLAMA_VERSION}-bin-ubuntu-x64.zip"; then
             unzip -q pkg.zip
           elif curl -fsSL -o pkg.tar.gz "${BASE}/llama-${LLAMA_VERSION}-bin-ubuntu-x64.tar.gz"; then
             tar -xzf pkg.tar.gz
           else
-            echo "該当するprebuiltが見つかりません" >&2
+            echo "prebuiltが見つかりません: ${BASE}" >&2
             exit 1
           fi
           cd ..
 
-          # llama-cliを動的探索
           CLI=$(find llama -type f -name 'llama-cli' | head -1)
           if [ -z "$CLI" ]; then
-            echo "llama-cliが見つかりません。展開構造:" >&2
+            echo "llama-cliが見つかりません" >&2
             find llama -maxdepth 4 -type f | head -100 >&2
             exit 1
           fi
