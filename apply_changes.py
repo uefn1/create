@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""AIの出力（Markdownコードブロック or JSON）をファイルに書き込む。"""
+"""AIの出力（JSON / Markdown）をファイルに書き込む。開きフェンスが無くても対応。"""
 import json
 import re
 import sys
@@ -7,14 +7,13 @@ from pathlib import Path
 
 
 def parse_json(text: str):
-    """まず ```json ブロック、次に生JSONを試す。"""
+    """```json ブロック、または "files" を含む生JSONを抽出。"""
     m = re.search(r"```json\s*(\{.*?\})\s*```", text, re.DOTALL)
     if m:
         try:
             return json.loads(m.group(1))
         except json.JSONDecodeError:
             pass
-    # 生JSONを行ごとに試す（{{ テンプレート誤認を避けるため "files" を要求）
     for m in re.finditer(r"\{.*?\}", text, re.DOTALL):
         chunk = m.group(0)
         if '"files"' not in chunk:
@@ -27,31 +26,48 @@ def parse_json(text: str):
 
 
 def parse_markdown(text: str):
-    """### filename や <!-- filename --> に続くコードブロックを抽出。"""
+    """### path 見出しで分割し、フェンス有無を問わず内容を取り出す。"""
     files = []
-    # パターン1: ### filename の後に ```lang ... ```
-    pattern = re.compile(
-        r"^#{1,6}\s+(\S+\.\w+)\s*\n+```[^\n]*\n(.*?)\n```",
-        re.DOTALL | re.MULTILINE,
-    )
-    for m in pattern.finditer(text):
-        files.append({"path": m.group(1), "content": m.group(2)})
+    # ヘッダで分割（### など）
+    parts = re.split(r"^#{1,6}\s+", text, flags=re.MULTILINE)
+    for part in parts[1:]:
+        lines = part.split("\n", 1)
+        if len(lines) < 2:
+            continue
+        header = lines[0].strip()
+        # パスを抽出（先頭の ./ は除去）
+        m = re.match(r"(\S+?\.\w+)", header)
+        if not m:
+            continue
+        path = re.sub(r"^\./", "", m.group(1))
+        body = lines[1]
 
-    # パターン2: コードブロック内の先頭コメントでパス指定
-    # ```python
-    # # main.py
-    # ...
-    # ```
-    if not files:
-        cb = re.compile(r"```(\w+)\n(.*?)\n```", re.DOTALL)
-        for m in cb.finditer(text):
-            body = m.group(2)
-            first = body.split("\n", 1)[0]
-            fm = re.match(r"^\s*(?:#|//|<!--)\s*(\S+\.\w+)", first)
-            if fm:
-                # 先頭コメント行を除去
-                body = body.split("\n", 1)[1] if "\n" in body else ""
-                files.append({"path": fm.group(1), "content": body})
+        # フェンスがある場合は中身を取り出す
+        fm = re.search(r"```[^\n]*\n(.*?)\n?```", body, re.DOTALL)
+        if fm:
+            content = fm.group(1)
+        else:
+            # 開きフェンスが無い：閉じフェンス or `--- ... ---` までを本文扱い
+            content = re.split(r"\n```", body, maxsplit=1)[0]
+            content = re.split(r"\n---", content, maxsplit=1)[0]
+            content = content.strip()
+
+        if not content:
+            continue
+        files.append({"path": path, "content": content.rstrip() + "\n"})
+
+    if files:
+        return files
+
+    # フォールバック: コードブロック先頭コメントでパス判定
+    cb = re.compile(r"```(\w+)\n(.*?)\n```", re.DOTALL)
+    for m in cb.finditer(text):
+        body = m.group(2)
+        first = body.split("\n", 1)[0]
+        fm = re.match(r"^\s*(?:#|//|<!--)\s*(\S+\.\w+)", first)
+        if fm:
+            rest = body.split("\n", 1)[1] if "\n" in body else ""
+            files.append({"path": re.sub(r"^\./", "", fm.group(1)), "content": rest + "\n"})
     return files
 
 
@@ -76,7 +92,6 @@ def main() -> int:
 
     text = output_path.read_text(encoding="utf-8")
 
-    # 1) JSON を試す
     data = parse_json(text)
     if data is not None:
         files = data.get("files", [])
@@ -86,7 +101,6 @@ def main() -> int:
                 safe_write(item["path"], item["content"])
         return 0
 
-    # 2) Markdown を試す
     files = parse_markdown(text)
     if files:
         print(f"Markdown形式で {len(files)} ファイル検出")
