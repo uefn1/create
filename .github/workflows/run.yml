@@ -19,8 +19,20 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Setup Ollama & cache
-        # 前回同様（インストール＋モデルキャッシュ）
+      - name: Cache Ollama models
+        uses: actions/cache@v4
+        with:
+          path: ~/.ollama
+          key: ollama-qwen2.5-coder-3b-v1
+
+      - name: Install Ollama
+        run: |
+          curl -fsSL https://ollama.com/install.sh | sh
+          ollama serve &
+          sleep 5
+
+      - name: Pull model
+        run: ollama pull qwen2.5-coder:3b
 
       - name: Build prompt
         run: |
@@ -50,7 +62,7 @@ jobs:
           git push
 
       - name: Trigger next iteration
-        if: always()          # 失敗しても連鎖を継続
+        if: always()
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
