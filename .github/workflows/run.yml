@@ -12,10 +12,9 @@ permissions:
   actions: write
 
 env:
-  # 使用するGGUFモデル（Hugging Face上のリポジトリとファイル名）
   MODEL_REPO: "Qwen/Qwen2.5-Coder-7B-Instruct-GGUF"
   MODEL_FILE: "qwen2.5-coder-7b-instruct-q4_k_m.gguf"
-  LLAMA_VERSION: "b12289"   # prebuiltのバージョン（必要に応じて更新）
+  LLAMA_VERSION: "latest"
 
 jobs:
   develop:
@@ -43,11 +42,41 @@ jobs:
 
       - name: Install llama.cpp prebuilt
         run: |
-          curl -fsSL -o llama.tar.gz \
-            "https://github.com/ggml-org/llama.cpp/releases/download/${LLAMA_VERSION}/llama-${LLAMA_VERSION}-bin-ubuntu-x64.tar.gz"
+          set -e
           mkdir -p llama
-          tar -xzf llama.tar.gz -C llama --strip-components=1
-          echo "$PWD/llama/build/bin" >> "$GITHUB_PATH"
+          cd llama
+
+          # latestならAPIから実在する最新タグを取得
+          if [ -z "${LLAMA_VERSION}" ] || [ "${LLAMA_VERSION}" = "latest" ]; then
+            LLAMA_VERSION=$(curl -fsSL https://api.github.com/repos/ggml-org/llama.cpp/releases/latest \
+              | grep -oP '"tag_name":\s*"\K[^"]+')
+          fi
+          echo "llama.cpp version: $LLAMA_VERSION"
+          BASE="https://github.com/ggml-org/llama.cpp/releases/download/${LLAMA_VERSION}"
+
+          # zip → tar.gz の順で試す
+          if curl -fsSL -o pkg.zip "${BASE}/llama-${LLAMA_VERSION}-bin-ubuntu-x64.zip"; then
+            unzip -q pkg.zip
+          elif curl -fsSL -o pkg.tar.gz "${BASE}/llama-${LLAMA_VERSION}-bin-ubuntu-x64.tar.gz"; then
+            tar -xzf pkg.tar.gz
+          else
+            echo "該当するprebuiltが見つかりません" >&2
+            exit 1
+          fi
+          cd ..
+
+          # llama-cliを動的探索
+          CLI=$(find llama -type f -name 'llama-cli' | head -1)
+          if [ -z "$CLI" ]; then
+            echo "llama-cliが見つかりません。展開構造:" >&2
+            find llama -maxdepth 4 -type f | head -100 >&2
+            exit 1
+          fi
+          CLI_DIR=$(dirname "$CLI")
+          chmod +x "$CLI"
+          echo "llama-cli: $CLI"
+          echo "$PWD/$CLI_DIR" >> "$GITHUB_PATH"
+          echo "LD_LIBRARY_PATH=$PWD/$CLI_DIR:${LD_LIBRARY_PATH}" >> "$GITHUB_ENV"
 
       - name: Build prompt
         run: |
@@ -68,6 +97,9 @@ jobs:
 
       - name: Run AI (llama.cpp)
         run: |
+          BIN_DIR=$(find llama -type d -name bin | head -1)
+          export PATH="$PWD/${BIN_DIR}:$PATH"
+          export LD_LIBRARY_PATH="$PWD/${BIN_DIR}:${LD_LIBRARY_PATH}"
           llama-cli \
             -m "gguf-cache/${MODEL_FILE}" \
             --file full_prompt.txt \
