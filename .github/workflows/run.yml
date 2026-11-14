@@ -1,0 +1,58 @@
+name: AI Game Dev Loop
+on:
+  workflow_dispatch:
+    inputs:
+      iteration:
+        description: '現在のイテレーション番号（0 = 初回）'
+        required: true
+        default: '0'
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  develop:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Ollama & cache
+        # 前回同様（インストール＋モデルキャッシュ）
+
+      - name: Build prompt
+        run: |
+          ITER=${{ github.event.inputs.iteration }}
+          if [ "$ITER" = "0" ]; then
+            cp prompt.txt full_prompt.txt
+          else
+            {
+              cat prompt.txt
+              echo -e "\n--- 現在のリポジトリのコード ---"
+              find . -type f \( -name '*.py' -o -name '*.js' -o -name '*.html' \) \
+                -not -path './.git/*' \
+                -exec echo -e "\n### {}" \; -exec head -c 3000 {} \;
+            } > full_prompt.txt
+          fi
+
+      - name: Run AI
+        run: ollama run qwen2.5-coder:3b "$(cat full_prompt.txt)" > ai_output.md
+
+      - name: Apply & commit
+        run: |
+          python3 apply_changes.py ai_output.md
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --staged --quiet || git commit -m "AI dev iteration ${{ github.event.inputs.iteration }}"
+          git push
+
+      - name: Trigger next iteration
+        if: always()          # 失敗しても連鎖を継続
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          NEXT=$(( ${{ github.event.inputs.iteration }} + 1 ))
+          gh workflow run "AI Game Dev Loop" -f iteration="$NEXT"
