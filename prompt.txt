@@ -1,1 +1,1 @@
-MinecraftをHTML単一ファイルで作成 
+オセロをHTML単一ファイルで作成 
