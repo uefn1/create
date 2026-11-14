@@ -1,22 +1,22 @@
 #!/usr/bin/env python3
-"""AIの出力を指定フォルダ配下に書き込む。"""
+"""AIの出力を指定フォルダ配下に書き込む。JSON / Markdown 両対応。"""
 import json
 import re
 import sys
 from pathlib import Path
 
-BASE_DIR = Path("game")  # デフォルトの出力先
+BASE_DIR = Path("game")
 
 
 def normalize_path(path_str: str) -> str:
     """先頭の ./ や base_dir プレフィックスを除去。"""
     p = re.sub(r"^\./", "", path_str.strip())
-    # AIが game/index.html のように書いてきた場合の二重プレフィックス防止
     p = re.sub(rf"^{re.escape(BASE_DIR.name)}/", "", p)
     return p
 
 
 def parse_json(text: str):
+    """```json ブロック、または "files" を含む生JSONを抽出。"""
     m = re.search(r"```json\s*(\{.*?\})\s*```", text, re.DOTALL)
     if m:
         try:
@@ -35,6 +35,7 @@ def parse_json(text: str):
 
 
 def parse_markdown(text: str):
+    """### path 見出しで分割し、フェンス有無を問わず内容を取り出す。"""
     files = []
     parts = re.split(r"^#{1,6}\s+", text, flags=re.MULTILINE)
     for part in parts[1:]:
