@@ -11,6 +11,12 @@ permissions:
   contents: write
   actions: write
 
+env:
+  # 使用するGGUFモデル（Hugging Face上のリポジトリとファイル名）
+  MODEL_REPO: "Qwen/Qwen2.5-Coder-7B-Instruct-GGUF"
+  MODEL_FILE: "qwen2.5-coder-7b-instruct-q4_k_m.gguf"
+  LLAMA_VERSION: "b12289"   # prebuiltのバージョン（必要に応じて更新）
+
 jobs:
   develop:
     runs-on: ubuntu-latest
@@ -20,14 +26,28 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Cache Ollama models
+      - name: Cache GGUF model
+        id: cache-gguf
         uses: actions/cache@v4
         with:
-          path: ~/.ollama
-          key: ollama-qwen2.5-coder-7b-v1
+          path: gguf-cache
+          key: ${{ runner.os }}-gguf-${{ env.MODEL_REPO }}-${{ env.MODEL_FILE }}-v1
 
-      - name: Install Ollama
-        run: curl -fsSL https://ollama.com/install.sh | sh
+      - name: Download GGUF model (cache miss only)
+        if: steps.cache-gguf.outputs.cache-hit != 'true'
+        run: |
+          python3 -m pip install --upgrade huggingface_hub hf_transfer
+          mkdir -p gguf-cache
+          HF_HUB_ENABLE_HF_TRANSFER=1 \
+            hf download "$MODEL_REPO" "$MODEL_FILE" --local-dir gguf-cache
+
+      - name: Install llama.cpp prebuilt
+        run: |
+          curl -fsSL -o llama.tar.gz \
+            "https://github.com/ggml-org/llama.cpp/releases/download/${LLAMA_VERSION}/llama-${LLAMA_VERSION}-bin-ubuntu-x64.tar.gz"
+          mkdir -p llama
+          tar -xzf llama.tar.gz -C llama --strip-components=1
+          echo "$PWD/llama/build/bin" >> "$GITHUB_PATH"
 
       - name: Build prompt
         run: |
@@ -46,12 +66,16 @@ jobs:
             } > full_prompt.txt
           fi
 
-      - name: Run AI
+      - name: Run AI (llama.cpp)
         run: |
-          ollama serve &
-          sleep 5
-          ollama pull qwen2.5-coder:7b
-          ollama run qwen2.5-coder:7b "$(cat full_prompt.txt)" > ai_output.md
+          llama-cli \
+            -m "gguf-cache/${MODEL_FILE}" \
+            --file full_prompt.txt \
+            -no-cnv \
+            -n 2048 \
+            --temp 0.2 \
+            -t $(nproc) \
+            > ai_output.md
 
       - name: Apply & commit
         run: |
