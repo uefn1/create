@@ -45,7 +45,6 @@ jobs:
           set -e
           mkdir -p llama
           cd llama
-
           BASE="https://github.com/ggml-org/llama.cpp/releases/download/${LLAMA_VERSION}"
 
           if curl -fsSL -o pkg.zip "${BASE}/llama-${LLAMA_VERSION}-bin-ubuntu-x64.zip"; then
@@ -92,14 +91,24 @@ jobs:
           BIN_DIR=$(find llama -type d -name bin | head -1)
           export PATH="$PWD/${BIN_DIR}:$PATH"
           export LD_LIBRARY_PATH="$PWD/${BIN_DIR}:${LD_LIBRARY_PATH}"
-          llama-cli \
-            -m "gguf-cache/${MODEL_FILE}" \
-            --file full_prompt.txt \
-            -no-cnv \
-            -n 2048 \
-            --temp 0.2 \
-            -t $(nproc) \
-            > ai_output.md
+
+          if command -v llama-completion >/dev/null 2>&1; then
+            llama-completion \
+              -m "gguf-cache/${MODEL_FILE}" \
+              --file full_prompt.txt \
+              -n 2048 \
+              --temp 0.2 \
+              -t $(nproc) \
+              > ai_output.md
+          else
+            llama-cli \
+              -m "gguf-cache/${MODEL_FILE}" \
+              --file full_prompt.txt \
+              -n 2048 \
+              --temp 0.2 \
+              -t $(nproc) \
+              > ai_output.md
+          fi
 
       - name: Apply & commit
         run: |
