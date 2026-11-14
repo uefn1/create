@@ -2,6 +2,8 @@ MinecraftをHTML単一ファイルで作成
 
 --- 現在のリポジトリのコード ---
 
+### ./game/index.html
+<html><head><title>Minecraft</title></head><body><h1>Welcome to Minecraft!</h1></body></html>
 ### ./apply_changes.py
 #!/usr/bin/env python3
 """AIの出力を指定フォルダ配下に書き込む。"""
